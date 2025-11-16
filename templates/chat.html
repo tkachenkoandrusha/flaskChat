@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>Чат</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+</head>
+<body>
+<div class="chat-container" data-username="{{username}}">
+    <!-- Сайдбар -->
+    <div class="sidebar">
+        <div class="topbar">
+            <h2 class="who">Користувач: {{username}}</h2>
+            <button class="logout-btn" onclick="logout()">Вийти</button>
+        </div>
+
+        <h3>Доступні кімнати</h3>
+        <div id="rooms">
+            {% for r in rooms %}
+            <div class="room-item" id="room-{{r.id}}">
+                <button class="room-btn" onclick="joinRoom('{{r.name}}')">{{r.name}}</button>
+                {% if username == 'admin' %}
+                <span class="delete-room" data-room-id="{{r.id}}">🗑️</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="create-row">
+          <input id="new_room" placeholder="Нова кімната">
+          <button onclick="createRoom()">Створити</button>
+        </div>
+
+        <h3>Учасники</h3>
+        <div id="users"></div>
+    </div>
+
+    <!-- Основний чат -->
+    <div class="main-chat">
+        <h3>Чат: <span id="current-room">немає</span></h3>
+        <div id="chat"></div>
+        <div class="message-input">
+            <input id="msg" type="text" placeholder="Введіть повідомлення" onkeydown="if(event.key==='Enter') sendMessage()">
+            <button onclick="sendMessage()">Відправити</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const socket = io();
+const container = document.querySelector('.chat-container');
+const username = container.getAttribute('data-username');
+let currentRoom = "";
+window.roomUserColors = {};
+window.chatHistory = [];
+
+// --- Логін/Вихід ---
+function logout(){ window.location.href="{{ url_for('logout') }}"; }
+function createRoom() {
+    const roomName = document.getElementById('new_room').value.trim();
+    if(!roomName) return;
+    socket.emit('create_room', {room: roomName, username: username});
+    document.getElementById('new_room').value = '';
+}
+function joinRoom(room){
+    if(currentRoom) socket.emit('leave',{username,room:currentRoom});
+    currentRoom = room;
+    document.getElementById('current-room').innerText = currentRoom;
+    document.getElementById('chat').innerHTML = '';
+    window.chatHistory=[];
+    socket.emit('join',{username,room:currentRoom});
+}
+function sendMessage(){
+    const msgEl = document.getElementById('msg');
+    const msg = msgEl.value.trim();
+    if(!msg || !currentRoom) return;
+    socket.emit('send_message',{username,room:currentRoom,msg});
+    msgEl.value='';
+}
+
+// --- Видалення кімнат ---
+function attachDeleteHandlers(){
+    document.querySelectorAll('.delete-room').forEach(el=>{
+        el.onclick = ()=>{
+            const roomId = el.getAttribute('data-room-id');
+            if(!confirm("Видалити цю кімнату?")) return;
+            const roomDiv = document.getElementById(`room-${roomId}`);
+            if(roomDiv) roomDiv.classList.add('removing');
+            if(currentRoom && roomDiv && currentRoom === roomDiv.querySelector('.room-btn').textContent){
+                currentRoom=""; document.getElementById('current-room').innerText="немає";
+                document.getElementById('chat').innerHTML=""; window.chatHistory=[];
+            }
+            fetch(`/delete_room/${roomId}`,{method:'POST'})
+                .then(resp=>{ if(resp.status!==204) alert("Помилка при видаленні"); else if(roomDiv) setTimeout(()=>roomDiv.remove(),300); })
+                .catch(()=>alert("Помилка мережі при видаленні"));
+        }
+    });
+}
+attachDeleteHandlers();
+
+// --- WebSocket ---
+socket.on('message', data => { window.chatHistory.push(data.msg); appendMessage(data.msg); });
+socket.on('chat_history', data => { if(Array.isArray(data.history)) data.history.forEach(line=>{ if(!window.chatHistory.includes(line)) window.chatHistory.push(line); appendMessage(line); }); });
+socket.on('update_users', data => {
+    const usersDiv=document.getElementById('users'); usersDiv.innerHTML='';
+    window.roomUserColors={};
+    if(Array.isArray(data.users)){
+        data.users.forEach(u=>{
+            const div=document.createElement('div'); div.textContent=u.username;
+            div.style.color=u.color||'#000'; usersDiv.appendChild(div);
+            window.roomUserColors[u.username]=u.color||'#000';
+        });
+    }
+    // Відновлюємо чат після оновлення користувачів
+    const chatDiv=document.getElementById('chat'); chatDiv.innerHTML='';
+    window.chatHistory.forEach(msg=>appendMessage(msg));
+});
+socket.on('room_created', data=>{
+    const roomsDiv=document.getElementById('rooms');
+    const div=document.createElement('div'); div.className='room-item'; div.id=`room-${data.room_id}`;
+    const btn=document.createElement('button'); btn.className='room-btn'; btn.textContent=data.room;
+    btn.onclick=()=>joinRoom(data.room); div.appendChild(btn);
+    if(username==='admin'){
+        const del=document.createElement('span'); del.className='delete-room'; del.textContent='🗑️';
+        del.setAttribute('data-room-id',data.room_id); div.appendChild(del); attachDeleteHandlers();
+    }
+    roomsDiv.appendChild(div);
+});
+socket.on('room_deleted', data=>{
+    const roomDiv=document.getElementById(`room-${data.room_id}`);
+    if(roomDiv){
+        const roomNameBtn = roomDiv.querySelector('.room-btn');
+        if(currentRoom && roomNameBtn && currentRoom===roomNameBtn.textContent){
+            currentRoom=""; document.getElementById('current-room').innerText="немає";
+            document.getElementById('chat').innerHTML=""; window.chatHistory=[];
+        }
+        roomDiv.classList.add('removing'); setTimeout(()=>roomDiv.remove(),300);
+    }
+});
+
+// ===== Сучасні бульбашки =====
+function colorFromString(s){let h=0; for(let i=0;i<s.length;i++) h=(h<<5)-h+s.charCodeAt(i); const r=(h&0xFF0000)>>16; const g=(h&0x00FF00)>>8; const b=(h&0x0000FF); return `rgb(${(Math.abs(r)%120)+60},${(Math.abs(g)%120)+60},${(Math.abs(b)%120)+60})`; }
+function timeNow(){ const d=new Date(); return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
+function escapeHtml(text){ return text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+
+function appendMessage(raw){
+    const chat=document.getElementById('chat');
+    const wrapper=document.createElement('div'); wrapper.className='message-wrapper'; wrapper.style.display='flex'; wrapper.style.width='100%'; wrapper.style.marginBottom='8px';
+    if(!raw.includes(':')){ const sys=document.createElement('div'); sys.className='bubble bubble-system'; sys.textContent=raw; sys.style.margin='0 auto'; chat.appendChild(sys); chat.scrollTop=chat.scrollHeight; return; }
+
+    const idx=raw.indexOf(':'); const sender=raw.slice(0,idx).trim(); const text=raw.slice(idx+1).trim();
+    const bubble=document.createElement('div'); bubble.className='bubble '+(sender===username?'me':'other');
+
+    const meta=document.createElement('div'); meta.className='bubble-meta';
+    meta.style.display='flex'; meta.style.alignItems='center'; meta.style.gap='10px'; meta.style.marginBottom='6px';
+
+    const avatar=document.createElement('div'); avatar.className='bubble-avatar'; avatar.textContent=sender.charAt(0).toUpperCase()||'?'; avatar.style.background=window.roomUserColors[sender]||colorFromString(sender);
+    const nameEl=document.createElement('div'); nameEl.className='bubble-user'; nameEl.textContent=sender;
+    const timeEl=document.createElement('div'); timeEl.className='bubble-time'; timeEl.textContent=timeNow();
+
+    meta.appendChild(avatar); meta.appendChild(nameEl); meta.appendChild(timeEl);
+    const textEl=document.createElement('div'); textEl.className='bubble-text'; textEl.innerHTML=escapeHtml(text);
+
+    bubble.appendChild(meta); bubble.appendChild(textEl);
+
+    if(sender===username){ wrapper.style.justifyContent='flex-end'; bubble.style.marginLeft='20px'; }
+    else{ wrapper.style.justifyContent='flex-start'; bubble.style.marginRight='20px'; }
+
+    wrapper.appendChild(bubble); chat.appendChild(wrapper); chat.scrollTop=chat.scrollHeight;
+}
+</script>
+</body>
+</html>
