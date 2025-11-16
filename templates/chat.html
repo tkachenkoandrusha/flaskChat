@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="chat-container" data-username="{{username}}">
-    <!-- Сайдбар -->
+  
     <div class="sidebar">
         <div class="topbar">
             <h2 class="who">Користувач: {{username}}</h2>
@@ -36,7 +36,6 @@
         <div id="users"></div>
     </div>
 
-    <!-- Основний чат -->
     <div class="main-chat">
         <h3>Чат: <span id="current-room">немає</span></h3>
         <div id="chat"></div>
@@ -79,7 +78,7 @@ function sendMessage(){
     msgEl.value='';
 }
 
-// --- Видалення кімнат ---
+//Видалення кімнат 
 function attachDeleteHandlers(){
     document.querySelectorAll('.delete-room').forEach(el=>{
         el.onclick = ()=>{
@@ -99,7 +98,7 @@ function attachDeleteHandlers(){
 }
 attachDeleteHandlers();
 
-// --- WebSocket ---
+// WebSocket 
 socket.on('message', data => { window.chatHistory.push(data.msg); appendMessage(data.msg); });
 socket.on('chat_history', data => { if(Array.isArray(data.history)) data.history.forEach(line=>{ if(!window.chatHistory.includes(line)) window.chatHistory.push(line); appendMessage(line); }); });
 socket.on('update_users', data => {
@@ -139,7 +138,7 @@ socket.on('room_deleted', data=>{
     }
 });
 
-// ===== Сучасні бульбашки =====
+//Сучасні бульбашки 
 function colorFromString(s){let h=0; for(let i=0;i<s.length;i++) h=(h<<5)-h+s.charCodeAt(i); const r=(h&0xFF0000)>>16; const g=(h&0x00FF00)>>8; const b=(h&0x0000FF); return `rgb(${(Math.abs(r)%120)+60},${(Math.abs(g)%120)+60},${(Math.abs(b)%120)+60})`; }
 function timeNow(){ const d=new Date(); return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
 function escapeHtml(text){ return text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }

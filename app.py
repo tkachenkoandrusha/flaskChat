@@ -12,12 +12,12 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 user_colors = {}  # кольори користувачів
 room_users = {}   # учасники кімнат
 
-# --- Ініціалізація БД та папки logs ---
+# Ініціалізація БД та папки logs
 with app.app_context():
     db.create_all()
     os.makedirs('logs', exist_ok=True)
 
-# --- Авторизація ---
+# Авторизація 
 @app.route('/', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -60,7 +60,7 @@ def password():
             error = "Невірний пароль"
     return render_template('password.html', username=user.username if user else '', error=error)
 
-# --- Чат ---
+# Чат 
 @app.route('/chat')
 def chat():
     user = None
@@ -73,7 +73,7 @@ def chat():
     rooms = ChatRoom.query.all()
     return render_template('chat.html', username=user.username, rooms=rooms, color=user_colors[user.id])
 
-# --- Видалення кімнати (тільки admin) ---
+# Видалення кімнати (тільки admin)
 @app.route('/delete_room/<int:room_id>', methods=['POST'])
 def delete_room(room_id):
     user = None
@@ -86,11 +86,11 @@ def delete_room(room_id):
     if room:
         db.session.delete(room)
         db.session.commit()
-        # повідомляємо всіх клієнтів через SocketIO
+        
         socketio.emit('room_deleted', {'room_id': room_id}, broadcast=True)
     return '', 204
 
-# --- WebSocket Events ---
+# WebSocket Events
 @socketio.on('create_room')
 def handle_create_room(data):
     room_name = data.get('room')
@@ -160,7 +160,7 @@ def handle_message(data):
     log_message(room, f"{username}: {msg}")
     emit('message', {'msg': f"{username}: {msg}"}, room=room)
 
-# --- Логування ---
+# Логування 
 def log_message(room, message):
     with open(f'logs/{room}.log', 'a', encoding='utf-8') as f:
         f.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
@@ -170,6 +170,5 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# --- Запуск ---
 if __name__ == '__main__':
     socketio.run(app, debug=True)
